@@ -1739,7 +1739,7 @@
 </main>
 
 <!-- Synlig versjonsnummer (bump ved hver endring, samme nummer som commit-tittelen) -->
-<div class="versjon">Prosjekt-planlegger v4.83</div>
+<div class="versjon">Prosjekt-planlegger v4.84</div>
 
 <!-- Modal: Kategorioversikt -->
 <div class="modal-overlay" id="katOversiktModal">
@@ -8838,8 +8838,9 @@
   // skriver til prosjektdokumentene — utfører trygt og deretter sletter:
   //   { tekst }                                → todo i fangstprosjektet
   //                                              (Siri-snarveien, bakoverkompatibelt)
-  //   { type:'todo',    tittel, prosjektId?, frist?, url? }
-  //   { type:'oppgave', tittel, prosjektId?, frist? }
+  //   { type:'todo',    tittel, prosjektId?, frist?, url?, kategori? }
+  //   { type:'oppgave', tittel, prosjektId?, frist?, kategori? }
+  // `kategori` er kategoriens NAVN i målprosjektet; ukjent navn ignoreres.
   //   { type:'fullfor', malId, malType:'todo'|'oppgave', prosjektId? }
   // Ukjent eller manglende prosjektId faller tilbake til fangstprosjektet.
   //
@@ -8910,6 +8911,16 @@
         const todosL    = finnes ? (fersk.todos    || []) : JSON.parse(localStorage.getItem(pk('t')) || '[]');
         const oppgaverL = finnes ? (fersk.oppgaver || []) : JSON.parse(localStorage.getItem(pk('o')) || '[]');
         const flogL     = Array.isArray(fersk.flog) ? fersk.flog : JSON.parse(localStorage.getItem(pk('flog')) || '[]');
+        const katL      = finnes ? (fersk.kategorier || []) : JSON.parse(localStorage.getItem(pk('k')) || '[]');
+        // Forespørselen kan oppgi kategori ved NAVN (køen kjenner ikke id-ene).
+        // Ukjent navn gir null, ikke en ny kategori: køen skal ikke kunne
+        // utvide vokabularet i et prosjekt, bare bruke det som finnes.
+        const finnKat = navn => {
+          if (!navn) return null;
+          const n = String(navn).trim().toLowerCase();
+          const t = katL.find(k => k && String(k.label || '').trim().toLowerCase() === n);
+          return t ? t.id : null;
+        };
 
         let endretTodos = false, endretOppgaver = false, endretFlog = false;
         const gruppeBehandlet = [];
@@ -8956,7 +8967,7 @@
             const oid = 'inn_' + dokId;          // avledet id ⇒ idempotent
             if (oppgaverL.some(o => o && o.id === oid)) continue;
             oppgaverL.push({ id: oid, beskrivelse: tittel.slice(0, 200), notat: '', frist,
-              aktivitetId: null, kategoriId: null, viktig: false, gjenta: null, tagger: [],
+              aktivitetId: null, kategoriId: finnKat(r.kategori), viktig: false, gjenta: null, tagger: [],
               estimat: null, faktisk: null, opprettet: iDag, fullfort: false });
             endretOppgaver = true;
             lagtTil++;
@@ -8968,7 +8979,7 @@
               id: tid,
               tittel: tittel.slice(0, 200),
               beskrivelse: String(r.url || '').slice(0, 500),
-              frist, aktivitetId: null, oppgaveId: null, kategoriId: null,
+              frist, aktivitetId: null, oppgaveId: null, kategoriId: finnKat(r.kategori),
               gjenta: null, tagger: [], opprettet: iDag, fullfort: false
             });
             endretTodos = true;

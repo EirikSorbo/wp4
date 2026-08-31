@@ -9,6 +9,7 @@
 //   node fangst.mjs "Skrive utkast" --prosjekt "UiA"           todo i navngitt prosjekt
 //   node fangst.mjs "Rapportskriving" --oppgave --prosjekt UiA oppgave i navngitt prosjekt
 //   node fangst.mjs "Purre svar" --frist 2026-08-20            med frist (YYYY-MM-DD)
+//   node fangst.mjs "Les kap. 3" --prosjekt UiA --kategori Musikkhistorie
 //   node fangst.mjs "Les denne" --url "https://..."            lenke i beskrivelsen
 //   node fangst.mjs --fullfor "Send epost" --prosjekt UiA      fullfør todo (unik tittelmatch)
 //   node fangst.mjs --fullfor "Rapport" --oppgave --prosjekt UiA  fullfør oppgave
@@ -25,19 +26,20 @@ const NOKKEL_STI = join(HER, 'nokkel.json');
 
 // ── Argumenter ──────────────────────────────────────────────────────────────
 const arg = process.argv.slice(2);
-let tittel = '', prosjektNavn = '', frist = '', url = '', fullforTittel = '';
+let tittel = '', prosjektNavn = '', frist = '', url = '', fullforTittel = '', kategori = '';
 let somOppgave = false;
 for (let i = 0; i < arg.length; i++) {
   if (arg[i] === '--prosjekt') prosjektNavn = arg[++i] || '';
   else if (arg[i] === '--frist') frist = arg[++i] || '';
   else if (arg[i] === '--url') url = arg[++i] || '';
   else if (arg[i] === '--fullfor') fullforTittel = arg[++i] || '';
+  else if (arg[i] === '--kategori') kategori = arg[++i] || '';
   else if (arg[i] === '--oppgave') somOppgave = true;
   else if (!tittel) tittel = arg[i];
 }
 
 if (!fullforTittel && (!tittel || !tittel.trim())) {
-  console.error('Bruk: node fangst.mjs "tekst" [--prosjekt N] [--oppgave] [--frist YYYY-MM-DD] [--url U]');
+  console.error('Bruk: node fangst.mjs "tekst" [--prosjekt N] [--kategori K] [--oppgave] [--frist YYYY-MM-DD] [--url U]');
   console.error('      node fangst.mjs --fullfor "tittel" [--oppgave] [--prosjekt N]');
   process.exit(1);
 }
@@ -127,7 +129,7 @@ if (fullforTittel) {
   felter.malType = { stringValue: somOppgave ? 'oppgave' : 'todo' };
   felter.prosjektId = { stringValue: prosjekt.id };
   beskrivelseAvHandling = 'Fullfør ' + (somOppgave ? 'oppgave' : 'todo') + ' «' + mal.navn + '» i ' + prosjekt.navn;
-} else if (prosjekt || somOppgave || frist) {
+} else if (prosjekt || somOppgave || frist || kategori) {
   // Typet forespørsel: bruker tittel-feltet (gamle app-versjoner ignorerer
   // dokumenter uten tekst-felt, så en utdatert enhet feilplasserer aldri noe).
   felter.type = { stringValue: somOppgave ? 'oppgave' : 'todo' };
@@ -135,8 +137,12 @@ if (fullforTittel) {
   if (prosjekt) felter.prosjektId = { stringValue: prosjekt.id };
   if (frist) felter.frist = { stringValue: frist };
   if (url) felter.url = { stringValue: url.slice(0, 500) };
+  // Kategorien sendes ved NAVN; appen slår den opp i målprosjektet og lar
+  // feltet stå tomt hvis navnet ikke finnes der (køen lager aldri kategorier).
+  if (kategori) felter.kategori = { stringValue: kategori.trim().slice(0, 100) };
   beskrivelseAvHandling = 'Ny ' + (somOppgave ? 'oppgave' : 'todo') + ' «' + tittel.trim() + '»'
     + (prosjekt ? ' i ' + prosjekt.navn : ' i fangstprosjektet')
+    + (kategori ? ' [' + kategori.trim() + ']' : '')
     + (frist ? ' (frist ' + frist + ')' : '');
 } else {
   // Enkel fangst: samme format som Siri-snarveien, virker med alle app-versjoner.

@@ -1739,7 +1739,7 @@
 </main>
 
 <!-- Synlig versjonsnummer (bump ved hver endring, samme nummer som commit-tittelen) -->
-<div class="versjon">Prosjekt-planlegger v4.86</div>
+<div class="versjon">Prosjekt-planlegger v4.87</div>
 
 <!-- Modal: Kategorioversikt -->
 <div class="modal-overlay" id="katOversiktModal">
@@ -8952,12 +8952,22 @@
 
         for (const { dokId, r } of gruppe) {
           const type = r.type || 'todo';         // uten type: Siri-fangst ⇒ to-do
-          // Ukjent type betyr at forespørselen kommer fra et nyere verktøy enn
-          // denne app-versjonen. La dokumentet stå framfor å gjette på hva det
-          // betyr: da utfører en oppdatert enhet det senere, i stedet for at
-          // det havner som feil elementtype her.
+          // Ukjent type betyr som regel at forespørselen kommer fra et nyere
+          // verktøy enn denne app-versjonen. Da er det bedre å la dokumentet
+          // stå enn å gjette på hva det betyr: en oppdatert enhet utfører det
+          // riktig senere, i stedet for at det havner som feil elementtype her.
+          // Men den ventingen må ha en slutt, ellers blir en forespørsel ingen
+          // versjon forstår liggende for alltid (og ingen andre enn eieren kan
+          // slette den). Etter en uke, eller uten brukbar opprettet-dato,
+          // ryddes den bort.
           if (!['todo', 'oppgave', 'leveranse', 'fullfor'].includes(type)) {
-            console.warn('[INNBOKS] Ukjent type «' + type + '» — lar den stå til appen er oppdatert:', dokId);
+            const alder = r.opprettet ? Date.now() - Date.parse(r.opprettet) : NaN;
+            if (alder >= 0 && alder < 7 * 24 * 60 * 60 * 1000) {
+              console.warn('[INNBOKS] Ukjent type «' + type + '» — venter på at appen oppdateres:', dokId);
+              continue;                          // står igjen, ikke behandlet
+            }
+            console.warn('[INNBOKS] Ukjent type «' + type + '» uten gyldig alder eller eldre enn en uke — ryddes bort:', dokId);
+            gruppeBehandlet.push(dokId);         // slettes uten å gjøre noe
             continue;
           }
           gruppeBehandlet.push(dokId);           // også no-op: slettes (aldri gift i køen)

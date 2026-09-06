@@ -1739,7 +1739,7 @@
 </main>
 
 <!-- Synlig versjonsnummer (bump ved hver endring, samme nummer som commit-tittelen) -->
-<div class="versjon">Prosjekt-planlegger v4.85</div>
+<div class="versjon">Prosjekt-planlegger v4.86</div>
 
 <!-- Modal: Kategorioversikt -->
 <div class="modal-overlay" id="katOversiktModal">
@@ -8951,8 +8951,16 @@
                             - (REKKEFOLGE[(b.r && b.r.type) || 'todo'] ?? 2));
 
         for (const { dokId, r } of gruppe) {
+          const type = r.type || 'todo';         // uten type: Siri-fangst ⇒ to-do
+          // Ukjent type betyr at forespørselen kommer fra et nyere verktøy enn
+          // denne app-versjonen. La dokumentet stå framfor å gjette på hva det
+          // betyr: da utfører en oppdatert enhet det senere, i stedet for at
+          // det havner som feil elementtype her.
+          if (!['todo', 'oppgave', 'leveranse', 'fullfor'].includes(type)) {
+            console.warn('[INNBOKS] Ukjent type «' + type + '» — lar den stå til appen er oppdatert:', dokId);
+            continue;
+          }
           gruppeBehandlet.push(dokId);           // også no-op: slettes (aldri gift i køen)
-          const type = r.type || 'todo';
           const tittel = String(r.tittel || r.tekst || r.text || '').trim();
           const frist = (typeof r.frist === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.frist)) ? r.frist : null;
 

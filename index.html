@@ -1739,7 +1739,7 @@
 </main>
 
 <!-- Synlig versjonsnummer (bump ved hver endring, samme nummer som commit-tittelen) -->
-<div class="versjon">Prosjekt-planlegger v4.84</div>
+<div class="versjon">Prosjekt-planlegger v4.85</div>
 
 <!-- Modal: Kategorioversikt -->
 <div class="modal-overlay" id="katOversiktModal">
@@ -8838,10 +8838,16 @@
   // skriver til prosjektdokumentene — utfører trygt og deretter sletter:
   //   { tekst }                                → todo i fangstprosjektet
   //                                              (Siri-snarveien, bakoverkompatibelt)
-  //   { type:'todo',    tittel, prosjektId?, frist?, url?, kategori? }
-  //   { type:'oppgave', tittel, prosjektId?, frist?, kategori? }
-  // `kategori` er kategoriens NAVN i målprosjektet; ukjent navn ignoreres.
+  //   { type:'todo',    tittel, prosjektId?, frist?, url?, kategori?, under? }
+  //   { type:'oppgave', tittel, prosjektId?, frist?, kategori?, under?, notat? }
+  //   { type:'leveranse', tittel, prosjektId?, leveranseType:'milepæl'|'aktivitet',
+  //     dato, datoTil?, kategori?, beskrivelse? }
   //   { type:'fullfor', malId, malType:'todo'|'oppgave', prosjektId? }
+  // `kategori` er kategoriens NAVN i målprosjektet; ukjent navn ignoreres.
+  // `under` er en leveranses TITTEL i målprosjektet og gir aktivitetId; ukjent
+  // eller flertydig navn gir null (elementet havner ukoblet, aldri feilkoblet).
+  // Leveranser utføres før oppgaver og to-dos i samme sveip, så en plan kan
+  // legges inn i én omgang og koblingene finner de nye leveransene.
   // Ukjent eller manglende prosjektId faller tilbake til fangstprosjektet.
   //
   // Hvorfor egne dokumenter og ikke direkte skriving i arrayene: lagreTilSky()
@@ -8912,6 +8918,7 @@
         const oppgaverL = finnes ? (fersk.oppgaver || []) : JSON.parse(localStorage.getItem(pk('o')) || '[]');
         const flogL     = Array.isArray(fersk.flog) ? fersk.flog : JSON.parse(localStorage.getItem(pk('flog')) || '[]');
         const katL      = finnes ? (fersk.kategorier || []) : JSON.parse(localStorage.getItem(pk('k')) || '[]');
+        const aktivL    = finnes ? (fersk.aktiviteter || []) : JSON.parse(localStorage.getItem(pk('a')) || '[]');
         // Forespørselen kan oppgi kategori ved NAVN (køen kjenner ikke id-ene).
         // Ukjent navn gir null, ikke en ny kategori: køen skal ikke kunne
         // utvide vokabularet i et prosjekt, bare bruke det som finnes.
@@ -8921,9 +8928,27 @@
           const t = katL.find(k => k && String(k.label || '').trim().toLowerCase() === n);
           return t ? t.id : null;
         };
+        // Leveranse ved TITTEL: eksakt (uavhengig av store/små bokstaver) først,
+        // ellers unik delstreng. Flertydig treff gir null framfor en gjetning,
+        // så et element heller står ukoblet enn å havne under feil leveranse.
+        const finnLeveranse = navn => {
+          if (!navn) return null;
+          const n = String(navn).trim().toLowerCase();
+          const norm = a => String((a && a.tittel) || '').trim().toLowerCase();
+          let t = aktivL.filter(a => a && norm(a) === n);
+          if (!t.length) t = aktivL.filter(a => a && norm(a).includes(n));
+          return t.length === 1 ? t[0].id : null;
+        };
 
-        let endretTodos = false, endretOppgaver = false, endretFlog = false;
+        let endretTodos = false, endretOppgaver = false, endretFlog = false, endretAktiv = false;
         const gruppeBehandlet = [];
+
+        // Leveranser først, så oppgaver, så to-dos: da kan `under` peke på en
+        // leveranse som opprettes i samme sveip. Fullføring til slutt, så den
+        // også treffer elementer som nettopp ble lagt inn.
+        const REKKEFOLGE = { leveranse: 0, oppgave: 1, todo: 2, fullfor: 3 };
+        gruppe.sort((a, b) => (REKKEFOLGE[(a.r && a.r.type) || 'todo'] ?? 2)
+                            - (REKKEFOLGE[(b.r && b.r.type) || 'todo'] ?? 2));
 
         for (const { dokId, r } of gruppe) {
           gruppeBehandlet.push(dokId);           // også no-op: slettes (aldri gift i køen)
@@ -8962,12 +8987,31 @@
             }
             if (erOppgave) endretOppgaver = true; else endretTodos = true;
             fullfortAntall++;
+          } else if (type === 'leveranse') {
+            if (!tittel) continue;               // tomt dokument: slettes uten effekt
+            const lid = 'inn_' + dokId;          // avledet id ⇒ idempotent
+            if (aktivL.some(a => a && a.id === lid)) continue;
+            const dato = (typeof r.dato === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.dato)) ? r.dato : null;
+            if (!dato) { console.warn('[INNBOKS] leveranse uten gyldig dato:', tittel); continue; }
+            const datoTil = (typeof r.datoTil === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.datoTil)) ? r.datoTil : dato;
+            aktivL.push({
+              id: lid,
+              tittel: tittel.slice(0, 200),
+              beskrivelse: String(r.beskrivelse || '').slice(0, 500),
+              leveranseType: r.leveranseType === 'milepæl' ? 'milepæl' : 'aktivitet',
+              type: finnKat(r.kategori),
+              dato, datoTil, tid: '', tidTil: '', avhengigAv: []
+            });
+            endretAktiv = true;
+            lagtTil++;
           } else if (type === 'oppgave') {
             if (!tittel) continue;               // tomt dokument: slettes uten effekt
             const oid = 'inn_' + dokId;          // avledet id ⇒ idempotent
             if (oppgaverL.some(o => o && o.id === oid)) continue;
-            oppgaverL.push({ id: oid, beskrivelse: tittel.slice(0, 200), notat: '', frist,
-              aktivitetId: null, kategoriId: finnKat(r.kategori), viktig: false, gjenta: null, tagger: [],
+            oppgaverL.push({ id: oid, beskrivelse: tittel.slice(0, 200),
+              notat: String(r.notat || '').slice(0, 500), frist,
+              aktivitetId: finnLeveranse(r.under), kategoriId: finnKat(r.kategori),
+              viktig: false, gjenta: null, tagger: [],
               estimat: null, faktisk: null, opprettet: iDag, fullfort: false });
             endretOppgaver = true;
             lagtTil++;
@@ -8979,7 +9023,8 @@
               id: tid,
               tittel: tittel.slice(0, 200),
               beskrivelse: String(r.url || '').slice(0, 500),
-              frist, aktivitetId: null, oppgaveId: null, kategoriId: finnKat(r.kategori),
+              frist, aktivitetId: finnLeveranse(r.under), oppgaveId: null,
+              kategoriId: finnKat(r.kategori),
               gjenta: null, tagger: [], opprettet: iDag, fullfort: false
             });
             endretTodos = true;
@@ -8987,12 +9032,13 @@
           }
         }
 
-        if (endretTodos || endretOppgaver || endretFlog) {
+        if (endretTodos || endretOppgaver || endretFlog || endretAktiv) {
           // Kun feltene vi faktisk endret (merge) — vi skal ikke skrive andre
           // felter tilbake fra en muligens utdatert kilde.
           const felter = { oppdatert: new Date().toISOString() };
           if (endretTodos)    felter.todos    = todosL;
           if (endretOppgaver) felter.oppgaver = oppgaverL;
+          if (endretAktiv)    felter.aktiviteter = aktivL;
           if (endretFlog)     felter.flog     = window._flogUnion(flogL, []);
           try {
             await setDoc(doc(db, 'brukere', userId, 'prosjekter', pid), felter, { merge: true });
@@ -9002,6 +9048,7 @@
           }
           if (endretTodos)    localStorage.setItem(pk('t'), JSON.stringify(todosL));
           if (endretOppgaver) localStorage.setItem(pk('o'), JSON.stringify(oppgaverL));
+          if (endretAktiv)    localStorage.setItem(pk('a'), JSON.stringify(aktivL));
           if (endretFlog)     localStorage.setItem(pk('flog'),
             JSON.stringify(window._flogUnion(JSON.parse(localStorage.getItem(pk('flog')) || '[]'), flogL)));
         }

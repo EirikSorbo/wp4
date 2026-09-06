@@ -2,3 +2,7 @@
 tools/nokkel.json
 .claude/
 .DS_Store
+
+# Arbeidsfiler: planer, importfiler og notater som hører til prosjektet,
+# men ikke i repoet. Mappenavnet sier hva den er til for.
+git ignore/
